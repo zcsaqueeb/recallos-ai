@@ -1,0 +1,148 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// NOTE: SQLite connector — structured fields are stored as JSON strings and
+// validated/normalized at the application boundary with Zod (src/lib/validation.ts).
+
+// Singleton row ("singleton") holding Walrus Memory credentials saved through the
+// Settings UI. These take precedence over the .env-based credentials; removing the
+// row (Settings → "Use built-in .env") reverts the runtime to the env fallback.
+model AppSettings {
+  id          String   @id
+  delegateKey String? // Ed25519 delegate PRIVATE key (64 hex chars) — server-side only
+  accountId   String?  // MemWalAccount object id on Sui (0x…)
+  serverUrl   String?  // Relayer URL, e.g. https://relayer.memory.walrus.xyz
+  namespace   String?  // Optional namespace override (falls back to WALRUS_MEMORY_NAMESPACE / "recallos")
+  label       String?  // Optional human label, e.g. "Personal relayer key"
+  tatumApiKey String?  // Tatum API key saved through the Settings UI (x-api-key for api.tatum.io + Sui gateway)
+  tatumLabel  String?  // Optional human label for the saved Tatum key
+  updatedAt   DateTime @updatedAt
+}
+
+model WorkspaceUser {
+  id          String   @id @default(cuid())
+  handle      String   @unique
+  displayName String
+  createdAt   DateTime @default(now())
+}
+
+model Decision {
+  id                   String    @id @default(cuid())
+  userId               String
+  category             String // e.g. INVESTMENT | DEV_TOOLING | SECURITY | LIFESTYLE | RESEARCH
+  title                String
+  question             String
+  goal                 String
+  constraintsJson      String // string[]
+  assumptionsJson      String // Assumption[] { id, text }
+  evidenceRefsJson     String // EvidenceRef[] { kind, sourceRef, summary }
+  recommendation       String
+  confidence           String // low | medium | high (AI-suggested, NOT a calibrated probability)
+  expectedOutcome      String
+  evaluationCriteria   String
+  reviewDate           DateTime?
+  actualOutcome        String?
+  verdictsJson         String? // AssumptionVerdict[] { assumptionId, verdict, rationale }
+  overallVerdict       String? // HELD | PARTIALLY_HELD | NOT_HELD | INCONCLUSIVE
+  evaluatedAt          DateTime?
+  status               String    @default("ACTIVE") // ACTIVE | EVALUATED
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([userId, status])
+}
+
+model MemoryRecord {
+  id            String    @id @default(cuid())
+  userId        String
+  category      String // PREFERENCE | GOAL | DECISION_SUMMARY | LESSON | EVIDENCE_PATTERN | CONSTRAINT | CORRECTION
+  content       String
+  sourceType    String // WALRUS | LOCAL_MIRROR | USER_INPUT
+  storageState  String // VERIFIED | PENDING_SYNC | FAILED
+  externalId    String? // Walrus job id / blob reference when confirmed by the integration
+  namespace     String?
+  evidenceJson  String? // WalrusEvidence { blobId, aggregatorUrl, explorerUrl, transport, epochs, ... }
+  importance    Int       @default(3) // 1..5
+  tagsJson      String // string[]
+  decisionId    String?
+  verifiedAt    DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([userId, category])
+  @@index([userId, sourceType])
+}
+
+model Lesson {
+  id                      String    @id @default(cuid())
+  statement               String
+  category                String
+  supportingDecisionsJson String // string[] decision ids
+  evidenceJson            String // EvidenceRef[]
+  observationCount        Int       @default(0)
+  confidence              String    @default("LOW") // LOW | MEDIUM | HIGH (evidence-gated, computed)
+  status                  String    @default("PROPOSED") // PROPOSED | SUPPORTED | APPLIED | REEVALUATED | REJECTED
+  exceptionsJson          String // string[]
+  appliedAt               DateTime?
+  reevaluatedAt           DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  @@index([status])
+}
+
+model EvidenceItem {
+  id           String   @id @default(cuid())
+  decisionId   String?
+  lessonId     String?
+  kind         String // BLOCKCHAIN | WEB | USER | MEMORY | OUTCOME
+  sourceRef    String? // e.g. tatum:sui_mainnet:sui_getTransactionBlock:<digest>
+  summary      String
+  payloadJson  String
+  observedAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  @@index([decisionId])
+}
+
+model ChainObservation {
+  id          String   @id @default(cuid())
+  kind        String // CHECKPOINT | TRANSACTION | BALANCE | OWNED_OBJECTS
+  method      String
+  paramsJson  String
+  resultJson  String
+  network     String // mainnet | testnet | devnet
+  sourceRef   String
+  latencyMs   Int?
+  observedAt  DateTime @default(now())
+
+  @@index([kind])
+}
+
+model ActivityEvent {
+  id        String   @id @default(cuid())
+  userId    String?
+  kind      String // MEMORY_WRITE | MEMORY_RECALL | DECISION_CREATED | OUTCOME_EVALUATED | LESSON_PROPOSED | LESSON_PROMOTED | LESSON_APPLIED | CHAIN_OBSERVATION | COMPARE_RUN | EVAL_RUN | SYSTEM
+  summary   String
+  metaJson  String?
+  createdAt DateTime @default(now())
+
+  @@index([kind])
+  @@index([userId])
+}
+
+model EvalResult {
+  id           String   @id @default(cuid())
+  scenarioId   String
+  scenarioName String
+  passed       Boolean
+  detailsJson  String
+  createdAt    DateTime @default(now())
+
+  @@index([scenarioId])
+}
